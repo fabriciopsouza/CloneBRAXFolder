@@ -7,8 +7,13 @@ $VPNProcessName = "FortiClient"
 
 # Obter o caminho da pasta "Meus Documentos"
 $MyDocuments = [Environment]::GetFolderPath("MyDocuments")
-$LogFile = Join-Path $MyDocuments "CopyLatestExcelFile.log"
-$LastRunTimeFile = Join-Path $MyDocuments "CopyLatestExcelFile_LastRunTime.txt"
+$LogFile = Join-Path $MyDocuments "CopyLatestExcelFile\CopyLatestExcelFile.log"
+$LastRunTimeFile = Join-Path $MyDocuments "CopyLatestExcelFile\CopyLatestExcelFile_LastRunTime.txt"
+
+# Criar a pasta para os logs se não existir
+if (!(Test-Path (Split-Path $LogFile))) {
+    New-Item -Path (Split-Path $LogFile) -ItemType Directory | Out-Null
+}
 
 # Função para verificar a conexão VPN
 function Wait-ForVPN {
@@ -24,10 +29,11 @@ function Wait-ForVPN {
 if (!(Test-Path $LastRunTimeFile)) {
     $FirstExecution = $true
     $LastRunTime = Get-Date "01/01/1970"
-} else {
+}
+else {
     $FirstExecution = $false
-    $LastRunTime = Get-Content $LastRunTimeFile | Out-String
-    $LastRunTime = [datetime]::Parse($LastRunTime)
+    $LastRunTimeContent = Get-Content $LastRunTimeFile | Out-String
+    $LastRunTime = [datetime]::Parse($LastRunTimeContent)
 }
 
 # Esperar pela conexão VPN
@@ -37,7 +43,8 @@ Wait-ForVPN
 if ($FirstExecution) {
     # Primeira execução: copiar todos os arquivos correspondentes
     $Files = Get-ChildItem -Path $SourcePath -Filter $FilePattern -File -Recurse
-} else {
+}
+else {
     # Execuções subsequentes: copiar somente arquivos modificados desde a última execução
     $Files = Get-ChildItem -Path $SourcePath -Filter $FilePattern -File -Recurse | Where-Object { $_.LastWriteTime -gt $LastRunTime }
 }
@@ -49,7 +56,8 @@ foreach ($File in $Files) {
         Copy-Item -Path $File.FullName -Destination $DestinationFile -Force
         $LogEntry = "$(Get-Date) - Copiado: $($File.FullName) para $DestinationFile"
         Add-Content -Path $LogFile -Value $LogEntry
-    } catch {
+    }
+    catch {
         $LogEntry = "$(Get-Date) - Erro ao copiar $($File.FullName): $_"
         Add-Content -Path $LogFile -Value $LogEntry
     }
@@ -57,20 +65,20 @@ foreach ($File in $Files) {
 
 # Atualizar o arquivo com a data/hora da última execução
 $CurrentTime = Get-Date
-$CurrentTime | Out-File -FilePath $LastRunTimeFile -Force
+$CurrentTime.ToString() | Out-File -FilePath $LastRunTimeFile -Force
 
-# Agendar a tarefa no Task Scheduler
+# Agendar a tarefa usando SCHTASKS
 # Verificar se a tarefa já existe
-if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+$TaskExists = schtasks /Query /TN $TaskName 2>&1 | Select-String $TaskName
+
+if ($TaskExists) {
     # Remover a tarefa existente
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+    schtasks /Delete /TN $TaskName /F > $null 2>&1
 }
 
-# Criar a ação e o gatilho para a tarefa agendada
-$ScriptPath = $MyInvocation.MyCommand.Definition
-$Action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-File `"$ScriptPath`" -WindowStyle Hidden"
-$TriggerTime = Get-Date
-$Trigger = New-ScheduledTaskTrigger -Daily -At $TriggerTime.TimeOfDay
+# Obter o caminho completo do script
+$ScriptPath = $MyInvocation.MyCommand.Path
 
-# Registrar a tarefa agendada
-Register-ScheduledTask -Action $Action -Trigger $Trigger -TaskName $TaskName -Description "Copia arquivos Excel modificados" -RunLevel Highest -Force
+# Agendar a nova tarefa
+$TriggerTime = (Get-Date).ToString("HH:mm")
+schtasks /Create /SC DAILY /TN $TaskName /TR "PowerShell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ScriptPath`"" /ST $TriggerTime /F > $null 2>&1
