@@ -1,7 +1,6 @@
 import os
 import shutil
 import time
-import datetime
 import platform
 import subprocess
 from pathlib import Path
@@ -163,6 +162,7 @@ class FileSync:
         self.logger.info(f"Pasta de origem: {self.source_path}")
         self.logger.info(f"Pasta de destino: {self.destination_path}")
 
+        # Tenta conectar à VPN algumas vezes
         max_retries = 3
         for attempt in range(max_retries):
             if self.check_vpn_connection():
@@ -172,50 +172,17 @@ class FileSync:
                 time.sleep(30)
             else:
                 self.logger.error("Não foi possível estabelecer conexão VPN")
+                input("\nPressione Enter para sair...")
                 return False
 
+        # Copia os arquivos
         if self.copy_files():
             self.logger.info("Processo concluído com sucesso!")
         else:
             self.logger.error("Processo concluído com erros!")
-
-    def should_run(self):
-        """Verifica se é hora de executar baseado no horário"""
-        now = datetime.datetime.now()
-        target_hour = 9  # Executar às 9 da manhã
-        target_minute = 0
         
-        if (now.hour > target_hour) or (now.hour == target_hour and now.minute > target_minute):
-            next_run = now.replace(day=now.day + 1, hour=target_hour, minute=target_minute, second=0, microsecond=0)
-        else:
-            next_run = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
-        
-        wait_seconds = (next_run - now).total_seconds()
-        
-        if wait_seconds > 0:
-            self.logger.info(f"Aguardando até {next_run.strftime('%H:%M')} para executar")
-            time.sleep(wait_seconds)
-        
-        return True
-
-    def run_scheduled(self):
-        """Executa o processo continuamente com agendamento"""
-        self.logger.info("Iniciando serviço de sincronização...")
-        
-        self.logger.info("Aguardando 60 segundos para inicialização completa do sistema...")
-        time.sleep(60)
-        
-        while True:
-            try:
-                if self.should_run():
-                    self.run()
-                
-                # Aguarda 1 hora antes de verificar novamente
-                time.sleep(3600)
-            except Exception as e:
-                self.logger.error(f"Erro durante execução: {e}")
-                time.sleep(300)  # Aguarda 5 minutos em caso de erro
+        input("\nPressione Enter para sair...")
 
 if __name__ == "__main__":
     sync = FileSync()
-    sync.run_scheduled()
+    sync.run()
